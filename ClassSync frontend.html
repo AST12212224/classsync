@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ClassSync</title>
+<style>
+:root{--bg:#eef1f4;--card:#fff;--ink:#14212b;--mut:#5d6b77;--line:#d3dae0;--free:#0f766e;--freebg:#d9efec;--occ:#b7791f;--occbg:#f6e3bd;--acc:#14212b;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10181f;--card:#18232c;--ink:#e8edf1;--mut:#93a1ad;--line:#2b3a46;--free:#4fd1c5;--freebg:#14373a;--occ:#f0b650;--occbg:#40331a;--acc:#e8edf1}}
+:root[data-theme="dark"]{--bg:#10181f;--card:#18232c;--ink:#e8edf1;--mut:#93a1ad;--line:#2b3a46;--free:#4fd1c5;--freebg:#14373a;--occ:#f0b650;--occbg:#40331a;--acc:#e8edf1}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Archivo","Segoe UI",system-ui,sans-serif}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--card);position:sticky;top:env(safe-area-inset-top,0px);z-index:5}
+.logo{font-size:20px;font-weight:800;letter-spacing:-.02em}.logo small{display:block;font-size:12px;font-weight:400;color:var(--mut);letter-spacing:0}
+button{font:inherit;cursor:pointer;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px}
+button.pri{background:var(--acc);color:var(--bg);border-color:var(--acc);font-weight:600}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--free);outline-offset:2px}
+.who{display:flex;align-items:center;gap:10px}.who span{color:var(--mut);font-size:13px}
+main{max-width:980px;margin:0 auto;padding:20px;display:grid;gap:20px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px}
+h2{margin:0 0 4px;font-size:17px}.hint{margin:0 0 14px;color:var(--mut);font-size:13px}
+.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+label{display:grid;gap:4px;font-size:13px;color:var(--mut)}
+input,select{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);width:100%}
+.legend{display:flex;gap:16px;font-size:13px;color:var(--mut);margin-bottom:12px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.tower{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.floor{border-top:1px solid var(--line)}.floor:first-child{border-top:0}
+.fbtn{width:100%;display:flex;align-items:center;gap:14px;border:0;border-radius:0;padding:12px 16px;text-align:left;background:var(--card)}
+.fbtn:hover{background:var(--bg)}
+.fnum{font-size:22px;font-weight:800;width:34px}
+.fname{flex:1}.fname b{display:block}.fname span{font-size:12px;color:var(--mut)}
+.bar{width:110px;height:8px;border-radius:4px;background:var(--freebg);overflow:hidden}.bar div{height:100%;background:var(--occ)}
+.chev{transition:transform .2s;color:var(--mut)}.floor.open .chev{transform:rotate(90deg)}
+.rooms{display:none;padding:14px 16px 16px;background:var(--bg)}.floor.open .rooms{display:block}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:8px}
+.room{padding:10px 0;text-align:center;font-weight:600;background:var(--freebg);color:var(--free);border-color:transparent}
+.room.occ{background:var(--occbg);color:var(--occ)}
+.room.sel{outline:2px solid var(--ink);outline-offset:1px}
+.detail{margin-top:14px;padding:14px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+.detail h3{margin:0 0 8px;font-size:15px}.detail .fields{margin-bottom:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);padding:22px;width:min(380px,92vw)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+.tabs{display:flex;gap:8px;margin-bottom:14px}.tabs button{flex:1}.tabs .on{background:var(--acc);color:var(--bg);border-color:var(--acc)}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;opacity:0;pointer-events:none;transition:opacity .2s}
+.toast.show{opacity:1}
+.err{color:#b3261e;font-size:13px;min-height:18px}
+.gate{text-align:center;color:var(--mut);padding:10px 0}
+[hidden]{display:none!important}
+@media(max-width:560px){.bar{display:none}main{padding:12px}}
+@media(prefers-reduced-motion:reduce){.chev{transition:none}.toast{transition:none}}
+</style></head>
+<body>
+<header>
+  <div class="logo">ClassSync<small>No more wandering, just learning</small></div>
+  <div class="who"><span id="whoami"></span><button class="pri" id="loginBtn">Log in</button><button id="logoutBtn" hidden>Log out</button></div>
+</header>
+<main>
+  <section class="panel" id="gate"><div class="gate"><b>Log in to see your profile and update rooms.</b><br>The building view below is open to everyone.</div></section>
+
+  <section class="panel" id="studentPanel" hidden>
+    <h2>Your class</h2><p class="hint">Saved once. We use it to find your room.</p>
+    <div class="fields">
+      <label>Semester<select id="sSem"><option value="">Select</option></select></label>
+      <label>Course<select id="sCourse"><option value="">Select</option><option>Computer Engineering</option><option>Information Technology</option><option>Electronics &amp; Telecom</option><option>Data Science</option><option>AI &amp; ML</option></select></label>
+      <label>Batch<select id="sBatch"><option value="">Select</option><option>A1</option><option>A2</option><option>A3</option><option>B1</option><option>B2</option><option>B3</option></select></label>
+    </div>
+    <div class="row" style="margin-top:14px"><button class="pri" id="saveStudent">Save class details</button></div>
+  </section>
+
+  <section class="panel" id="teacherPanel" hidden>
+    <h2>Your details</h2><p class="hint">Students and colleagues can see where to find you when you have no class.</p>
+    <div class="fields">
+      <label>Name<input id="tName" placeholder="Prof. A. Sharma"></label>
+      <label>Courses you teach<input id="tCourses" placeholder="DBMS, Operating Systems"></label>
+      <label>When free, I am at<select id="tPlace"><option value="">Select</option><option>Classroom</option><option>Office desk</option></select></label>
+      <label>Room or desk number<input id="tWhere" placeholder="e.g. Floor 3, Room 12"></label>
+    </div>
+    <div class="row" style="margin-top:14px"><button class="pri" id="saveTeacher">Save my details</button></div>
+  </section>
+
+  <section class="panel">
+    <h2>Building</h2><p class="hint">Select a floor to see its 20 rooms.</p>
+    <div class="legend"><span><i style="background:var(--freebg);border:1px solid var(--free)"></i>Free</span><span><i style="background:var(--occbg);border:1px solid var(--occ)"></i>Occupied</span></div>
+    <div class="tower" id="tower"></div>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog" id="loginForm" onsubmit="return false">
+    <h2>Log in</h2>
+    <div class="tabs"><button type="button" id="tabS" class="on">Student</button><button type="button" id="tabT">Teacher</button></div>
+    <label>Email<input id="lEmail" type="email" autocomplete="email" placeholder="you@college.edu"></label>
+    <label style="margin-top:10px" id="pwWrap" hidden>Password<input id="lPw" type="password" autocomplete="current-password"></label>
+    <label style="margin-top:10px" id="otpWrap">One-time password<input id="lOtp" inputmode="numeric" placeholder="6 digits (demo: any 6 digits)"></label>
+    <div class="err" id="lErr"></div>
+    <div class="row"><button type="button" class="pri" id="doLogin">Log in</button><button type="button" id="cancelLogin">Cancel</button></div>
+    <p class="hint" style="margin:12px 0 0">Teacher accounts are created by the admin. There is no sign-up.</p>
+  </form>
+</dialog>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+var $=function(i){return document.getElementById(i)};
+var FLOORS=[8,7,6,5,4,3,2,1,0];
+var NAMES=['Ground','1st','2nd','3rd','4th','5th','6th','7th','8th'];
+var user=null,role='student',openFloor=null,selRoom=null;
+var profile={};
+// demo live status, seeded so the view looks real
+var status={};
+(function(){var s=7;for(var f=0;f<=8;f++)for(var r=1;r<=20;r++){s=(s*9301+49297)%233280;if(s%100<38)status[f+'-'+r]={occ:true,fac:'Prof. Rao',from:'09:00',to:'10:00'}}})();
+function load(){try{var d=JSON.parse(localStorage.getItem('classsync')||'{}');profile=d.profile||{};user=d.user||null}catch(e){}}
+function persist(){try{localStorage.setItem('classsync',JSON.stringify({profile:profile,user:user}))}catch(e){}}
+function toast(m){var t=$('toast');t.textContent=m;t.classList.add('show');setTimeout(function(){t.classList.remove('show')},2200)}
+for(var i=1;i<=8;i++){var o=document.createElement('option');o.textContent='Semester '+i;o.value=i;$('sSem').appendChild(o)}
+
+function renderAuth(){
+  var on=!!user;
+  $('loginBtn').hidden=on;$('logoutBtn').hidden=!on;
+  $('whoami').textContent=on?(user.role==='teacher'?'Teacher':'Student')+' · '+user.email:'';
+  $('gate').hidden=on;$('studentPanel').hidden=!(on&&user.role==='student');$('teacherPanel').hidden=!(on&&user.role==='teacher');
+  if(on){var p=profile[user.email]||{};
+    if(user.role==='student'){$('sSem').value=p.sem||'';$('sCourse').value=p.course||'';$('sBatch').value=p.batch||''}
+    else{$('tName').value=p.name||'';$('tCourses').value=p.courses||'';$('tPlace').value=p.place||'';$('tWhere').value=p.where||''}}
+  renderTower();
+}
+
+function renderTower(){
+  var t=$('tower');t.innerHTML='';
+  FLOORS.forEach(function(f){
+    var used=0;for(var r=1;r<=20;r++)if(status[f+'-'+r])used++;
+    var d=document.createElement('div');d.className='floor'+(openFloor===f?' open':'');
+    var b=document.createElement('button');b.className='fbtn';b.setAttribute('aria-expanded',openFloor===f);
+    b.innerHTML='<span class="fnum">'+f+'</span><span class="fname"><b>'+(f===0?'Ground floor':NAMES[f]+' floor')+'</b><span>'+(20-used)+' free · '+used+' occupied</span></span><span class="bar"><div style="width:'+(used*5)+'%"></div></span><span class="chev">&#9656;</span>';
+    b.onclick=function(){openFloor=openFloor===f?null:f;selRoom=null;renderTower()};
+    d.appendChild(b);
+    if(openFloor===f){
+      var w=document.createElement('div');w.className='rooms';
+      var g=document.createElement('div');g.className='grid';
+      for(var r=1;r<=20;r++)(function(r){
+        var s=status[f+'-'+r];var x=document.createElement('button');
+        x.className='room'+(s?' occ':'')+(selRoom===r?' sel':'');x.textContent=r;
+        x.setAttribute('aria-label','Room '+r+(s?' occupied':' free'));
+        x.onclick=function(){selRoom=r;renderTower()};g.appendChild(x)})(r);
+      w.appendChild(g);
+      if(selRoom)w.appendChild(detail(f,selRoom));
+      d.appendChild(w);
+    }
+    t.appendChild(d);
+  });
+}
+
+function detail(f,r){
+  var s=status[f+'-'+r],d=document.createElement('div');d.className='detail';
+  var title='Floor '+f+', Room '+r;
+  if(user&&user.role==='teacher'){
+    var p=profile[user.email]||{};
+    d.innerHTML='<h3>'+title+'</h3><div class="fields"><label>Status<select id="dSt"><option value="free">Free</option><option value="occ">Occupied</option></select></label><label>Faculty<input id="dFac"></label><label>From<input id="dFrom" type="time"></label><label>To<input id="dTo" type="time"></label></div><div class="row"><button class="pri" id="dSave">Update room</button></div><div class="err" id="dErr"></div>';
+    setTimeout(function(){
+      $('dSt').value=s?'occ':'free';$('dFac').value=s?s.fac:(p.name||'');$('dFrom').value=s?s.from:'';$('dTo').value=s?s.to:'';
+      $('dSave').onclick=function(){
+        if($('dSt').value==='free'){delete status[f+'-'+r];toast('Room '+r+' marked free');renderTower();return}
+        if(!$('dFac').value||!$('dFrom').value||!$('dTo').value){$('dErr').textContent='Add faculty name and both times to mark this room occupied.';return}
+        if($('dTo').value<=$('dFrom').value){$('dErr').textContent='End time must be after start time.';return}
+        if(s&&!(s.fac===$('dFac').value&&s.from===$('dFrom').value)&&false){}
+        status[f+'-'+r]={occ:true,fac:$('dFac').value,from:$('dFrom').value,to:$('dTo').value};
+        toast('Room '+r+' marked occupied');renderTower()}
+    });
+  }else{
+    d.innerHTML='<h3>'+title+'</h3><p style="margin:0">'+(s?'Occupied by '+s.fac+', '+s.from+' to '+s.to+'.':'Free right now.')+'</p>'+(user?'':'<p class="hint" style="margin:8px 0 0">Log in as a teacher to change room status.</p>');
+  }
+  return d;
+}
+
+// login
+var tab='student';
+function setTab(t){tab=t;$('tabS').classList.toggle('on',t==='student');$('tabT').classList.toggle('on',t==='teacher');$('pwWrap').hidden=t==='student';$('otpWrap').hidden=t==='teacher';$('lErr').textContent=''}
+$('tabS').onclick=function(){setTab('student')};$('tabT').onclick=function(){setTab('teacher')};
+$('loginBtn').onclick=function(){setTab('student');$('dlg').showModal()};
+$('cancelLogin').onclick=function(){$('dlg').close()};
+$('doLogin').onclick=function(){
+  var e=$('lEmail').value.trim();
+  if(!/^\S+@\S+\.\S+$/.test(e)){$('lErr').textContent='Enter a valid email address.';return}
+  if(tab==='student'&&!/^\d{6}$/.test($('lOtp').value)){$('lErr').textContent='Enter the 6-digit one-time password.';return}
+  if(tab==='teacher'&&$('lPw').value.length<4){$('lErr').textContent='Enter the password the admin gave you.';return}
+  user={email:e,role:tab};persist();$('dlg').close();$('lPw').value='';$('lOtp').value='';renderAuth();toast('Logged in')};
+$('logoutBtn').onclick=function(){user=null;selRoom=null;persist();renderAuth();toast('Logged out')};
+
+$('saveStudent').onclick=function(){
+  if(!$('sSem').value||!$('sCourse').value||!$('sBatch').value){toast('Choose semester, course and batch');return}
+  profile[user.email]={sem:$('sSem').value,course:$('sCourse').value,batch:$('sBatch').value};persist();toast('Class details saved')};
+$('saveTeacher').onclick=function(){
+  if(!$('tName').value.trim()){toast('Add your name');return}
+  profile[user.email]={name:$('tName').value.trim(),courses:$('tCourses').value.trim(),place:$('tPlace').value,where:$('tWhere').value.trim()};persist();toast('Details saved')};
+
+load();renderAuth();
+</script></body></html>
