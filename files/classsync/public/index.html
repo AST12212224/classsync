@@ -5,45 +5,62 @@
 <link rel="stylesheet" href="/style.css"></head>
 <body>
 <header>
-  <div class="logo">ClassSync<small>No more wandering, just learning</small></div>
-  <div class="who"><span id="whoami"></span><a id="adminLink" href="/admin.html" hidden>Admin</a><button class="pri" id="loginBtn">Log in</button><button id="logoutBtn" hidden>Log out</button></div>
+  <a class="logo" href="/">ClassSync<small>No more wandering, just learning</small></a>
+  <div class="who">
+    <span id="whoami"></span>
+    <a id="ttLink" href="/timetable.html" hidden>Timetable</a>
+    <a id="adminLink" href="/admin.html" hidden>Admin</a>
+    <button class="pri" id="loginBtn">Log in</button><button id="logoutBtn" hidden>Log out</button>
+  </div>
 </header>
 <main>
-  <section class="panel" id="gate"><div class="gate"><b>Log in with your email to see the live building view.</b><br>We send a one-time code, so there is no password to remember.</div></section>
+  <section class="panel" id="gate"><div class="gate"><b>Log in to see which rooms are free right now.</b><br>Students use their SPIT email (name@spit.ac.in). We email a one-time code, so there is no password to remember.</div></section>
 
   <section class="panel" id="studentPanel" hidden>
     <h2>Your class</h2><p class="hint">Saved once. We use it to find your room.</p>
     <div class="fields">
-      <label>Semester<select id="sSem"><option value="">Select</option></select></label>
-      <label>Course<select id="sCourse"><option value="">Select</option><option>Computer Engineering</option><option>Information Technology</option><option>Electronics &amp; Telecom</option><option>Data Science</option><option>AI &amp; ML</option></select></label>
-      <label>Batch<select id="sBatch"><option value="">Select</option><option>A1</option><option>A2</option><option>A3</option><option>B1</option><option>B2</option><option>B3</option></select></label>
+      <label>Course<select id="sCourse"></select></label>
+      <label>Semester<select id="sSem"></select></label>
+      <label>Batch<select id="sBatch"></select></label>
     </div>
-    <div class="row" style="margin-top:14px"><button class="pri" id="saveStudent">Save class details</button></div>
+    <div class="row mt"><button class="pri" id="saveStudent">Save class details</button></div>
+    <div class="mt"><h3 id="myDayTitle">Today's classes</h3><div class="list" id="myDay"></div></div>
   </section>
 
   <section class="panel" id="teacherPanel" hidden>
     <h2>Your details</h2><p class="hint">Students and colleagues can see where to find you when you have no class.</p>
     <div class="fields">
-      <label>Name<input id="tName" placeholder="Prof. A. Sharma"></label>
-      <label>Courses you teach<input id="tCourses" placeholder="DBMS, Operating Systems"></label>
+      <label>Name<input id="tName" maxlength="80" placeholder="Prof. A. Sharma"></label>
+      <label>Courses you teach<input id="tCourses" maxlength="300" placeholder="DBMS, Operating Systems"></label>
       <label>When free, I am at<select id="tPlace"><option value="">Select</option><option value="classroom">Classroom</option><option value="office_desk">Office desk</option></select></label>
-      <label>Room or desk number<input id="tWhere" placeholder="e.g. Floor 3, Room 12"></label>
+      <label>Room or desk<input id="tWhere" maxlength="100" placeholder="e.g. Staff room, 3rd floor"></label>
     </div>
-    <div class="row" style="margin-top:14px"><button class="pri" id="saveTeacher">Save my details</button></div>
+    <div class="row mt"><button class="pri" id="saveTeacher">Save my details</button></div>
   </section>
 
   <section class="panel" id="buildingPanel" hidden>
-    <h2>Building</h2><p class="hint">Select a floor to see its 20 rooms.</p>
-    <div class="legend"><span><i style="background:var(--freebg);border:1px solid var(--free)"></i>Free</span><span><i style="background:var(--occbg);border:1px solid var(--occ)"></i>Occupied</span></div>
+    <div class="head">
+      <div><h2>Building</h2><p class="hint">Select a floor to see its rooms, then a room for today's schedule.</p></div>
+      <span class="hint" id="updated"></span>
+    </div>
+    <div class="legend"><span><i class="f"></i>Free</span><span><i class="o"></i>Occupied</span></div>
     <div class="tower" id="tower"></div>
+  </section>
+
+  <section class="panel" id="dirPanel" hidden>
+    <div class="head">
+      <div><h2>Teachers</h2><p class="hint">Where to find a teacher when they have no class.</p></div>
+      <input class="search" id="dirSearch" type="search" placeholder="Search name or course" aria-label="Search teachers">
+    </div>
+    <div class="list" id="dir"></div>
   </section>
 </main>
 
 <dialog id="dlg">
   <h2>Log in</h2>
-  <p class="hint" id="lStep">We will email you a 6-digit code. Teacher and admin accounts are created by the admin.</p>
-  <label>Email<input id="lEmail" type="email" autocomplete="email" placeholder="name.surname@spit.ac.in"></label>
-  <label id="otpWrap" style="margin-top:10px" hidden>Code<input id="lOtp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 digits"></label>
+  <p class="hint" id="lStep"></p>
+  <label>Email<input id="lEmail" type="email" autocomplete="email" placeholder="name@spit.ac.in"></label>
+  <label id="otpWrap" class="mt" hidden>Code<input id="lOtp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 digits"></label>
   <div class="err" id="lErr"></div>
   <div class="row"><button class="pri" id="doLogin">Send code</button><button id="cancelLogin">Cancel</button></div>
 </dialog>

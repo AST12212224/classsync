@@ -5,23 +5,54 @@
 <link rel="stylesheet" href="/style.css"></head>
 <body>
 <header>
-  <div class="logo">ClassSync admin<small>Manage staff accounts</small></div>
-  <div class="who"><a href="/">Back to building</a><button id="logoutBtn">Log out</button></div>
+  <a class="logo" href="/">ClassSync admin<small>Building and staff</small></a>
+  <div class="who"><span id="whoami"></span><a href="/timetable.html">Timetable</a><a href="/">Back to building</a><button id="logoutBtn">Log out</button></div>
 </header>
 <main>
   <section class="panel" id="denied" hidden><div class="gate"><b>This page is for admins.</b><br><a href="/">Log in from the home page</a> with an admin email.</div></section>
-  <section class="panel" id="addPanel" hidden>
-    <h2>Add staff</h2><p class="hint">They log in with an email code. There is no sign-up page.</p>
-    <div class="fields">
-      <label>Name<input id="aName" maxlength="80"></label>
-      <label>Email<input id="aEmail" type="email"></label>
-      <label>Role<select id="aRole"></select></label>
-    </div>
-    <div class="err" id="aErr"></div>
-    <div class="row"><button class="pri" id="aAdd">Add account</button></div>
-  </section>
-  <section class="panel" id="listPanel" hidden><h2>Staff accounts</h2><div id="list"></div></section>
+
+  <div class="tabs" id="tabs" role="tablist" hidden>
+    <button role="tab" id="tabBuilding" aria-selected="true">Floors and rooms</button>
+    <button role="tab" id="tabStaff" aria-selected="false">Teachers and staff</button>
+  </div>
+
+  <div class="view" id="viewBuilding" hidden>
+    <section class="panel">
+      <h2>Add a floor</h2><p class="hint">The number sets the order (0 = ground, top floor is shown first). The name is what everyone sees.</p>
+      <div class="fields">
+        <label>Floor number<input id="fLevel" type="number" min="-5" max="200" placeholder="e.g. 3"></label>
+        <label>Floor name<input id="fName" maxlength="60" placeholder="e.g. Third floor (MCA block)"></label>
+      </div>
+      <div class="err" id="fErr"></div>
+      <div class="row"><button class="pri" id="fAdd">Add floor</button></div>
+    </section>
+    <section class="panel">
+      <h2>Floors, classrooms and labs</h2><p class="hint">Click a room to rename it, change its type, move it, or delete it.</p>
+      <div id="floors"></div>
+    </section>
+  </div>
+
+  <div class="view" id="viewStaff" hidden>
+    <section class="panel">
+      <h2>Add a teacher or staff member</h2><p class="hint">They log in with an email code. There is no sign-up page. Students do not need to be added: anyone with a SPIT email can log in as a student.</p>
+      <div class="fields">
+        <label>Name<input id="aName" maxlength="80" placeholder="Prof. A. Sharma"></label>
+        <label>Email<input id="aEmail" type="email" placeholder="a.sharma@spit.ac.in"></label>
+        <label>Role<select id="aRole"></select></label>
+      </div>
+      <div class="err" id="aErr"></div>
+      <div class="row"><button class="pri" id="aAdd">Add account</button></div>
+    </section>
+    <section class="panel"><h2>Staff accounts</h2><div class="list" id="list"></div></section>
+  </div>
 </main>
+
+<dialog id="edlg">
+  <h2 id="eTitle"></h2>
+  <div class="fields" id="eFields"></div>
+  <div class="err" id="eErr"></div>
+  <div class="row"><button class="pri" id="eSave">Save</button><button id="eCancel">Cancel</button><button class="danger" id="eDel">Delete</button></div>
+</dialog>
 <div class="toast" id="toast" role="status"></div>
 <script src="/common.js"></script>
 <script src="/admin.js"></script>

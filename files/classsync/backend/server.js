@@ -4,6 +4,7 @@ const express = require('express');
 const helmet = require('helmet');
 const { pg, redis } = require('./db');
 const { limit, requestOtp, verifyOtp, requireAuth, logout } = require('./auth');
+const { now } = require('./schedule');
 
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
   throw new Error('Set JWT_SECRET to at least 32 random characters in .env');
@@ -56,67 +57,21 @@ app.put('/api/me/profile', requireAuth(), async (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- Live room status ----------
-app.get('/api/status', requireAuth(), async (req, res) => {
+// ---------- Building, bookings, timetable ----------
+app.use('/api', require('./building'), require('./timetable'));
+
+// Teacher directory: where to find each teacher when they have no class.
+app.get('/api/teachers', requireAuth(), async (req, res) => {
+  const t = now();
   const { rows } = await pg.query(
-    `SELECT r.floor, r.room_no, l.faculty,
-            to_char(l.from_time,'HH24:MI') AS from_time, to_char(l.to_time,'HH24:MI') AS to_time
-     FROM live_status l JOIN rooms r ON r.id = l.room_id`);
+    `SELECT u.id, u.name, u.email, p.courses, p.free_place, p.free_location, n.room AS teaching_room, n.floor AS teaching_floor
+       FROM users u LEFT JOIN teacher_profile p ON p.user_id = u.id
+       LEFT JOIN LATERAL (
+         SELECT r.name AS room, f.name AS floor FROM bookings b
+           JOIN rooms r ON r.id = b.room_id JOIN floors f ON f.id = r.floor_id
+          WHERE b.created_by = u.id AND b.day = $1 AND b.from_time <= $2 AND b.to_time > $2 LIMIT 1) n ON true
+      WHERE u.role = 'teacher' ORDER BY u.name`, [t.date, t.time]);
   res.json(rows);
-});
-
-// Conflict rule from the proposal. A class is the vector (room, hour, floor).
-// Two classes clash when A x B = 0 (parallel) and |A|^2 = |B|^2 (equal length).
-const cross = (a, b) => [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]];
-const len2 = (a) => a[0]**2 + a[1]**2 + a[2]**2;
-const hours = (from, to) => {
-  const a = Number(from.slice(0, 2)), b = Math.ceil(Number(to.slice(0, 2)) + Number(to.slice(3)) / 60);
-  return Array.from({ length: Math.max(b - a, 0) }, (_, i) => a + i);
-};
-const vectors = (room, floor, from, to) => hours(from, to).map((h) => [room, h, floor]);
-const clashes = (A, B) => A.some((a) => B.some((b) => cross(a, b).every((c) => c === 0) && len2(a) === len2(b)));
-
-const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
-app.put('/api/rooms/:floor/:room', requireAuth('teacher', 'admin', 'superadmin'), async (req, res) => {
-  const floor = Number(req.params.floor), no = Number(req.params.room);
-  const { status, faculty, from, to } = req.body;
-  if (!Number.isInteger(floor) || floor < 0 || floor > 8 || !Number.isInteger(no) || no < 1 || no > 20) {
-    return res.status(400).json({ error: 'That room does not exist.' });
-  }
-  const { rows: [room] } = await pg.query('SELECT id FROM rooms WHERE floor=$1 AND room_no=$2', [floor, no]);
-  if (!room) return res.status(404).json({ error: 'That room does not exist.' });
-
-  if (status === 'free') {
-    await pg.query('DELETE FROM live_status WHERE room_id = $1', [room.id]);
-    return res.json({ ok: true });
-  }
-  if (status !== 'occupied') return res.status(400).json({ error: 'Status must be free or occupied.' });
-  if (!String(faculty || '').trim() || !TIME.test(from) || !TIME.test(to) || from < '08:00' || to > '17:00' || to <= from) {
-    return res.status(400).json({ error: 'Add the faculty name and a from-to time between 08:00 and 17:00.' });
-  }
-
-  const db = await pg.connect();
-  try {
-    await db.query('BEGIN');
-    await db.query('SELECT pg_advisory_xact_lock($1)', [room.id]); // two requests for one room run one after the other
-    const { rows: [cur] } = await db.query(
-      `SELECT to_char(from_time,'HH24:MI') f, to_char(to_time,'HH24:MI') t, updated_by FROM live_status WHERE room_id = $1`, [room.id]);
-    if (cur && cur.updated_by !== req.user.id && clashes(vectors(no, floor, from, to), vectors(no, floor, cur.f, cur.t))) {
-      await db.query('ROLLBACK');
-      return res.status(409).json({ error: 'Room already occupied at this time.' });
-    }
-    await db.query(
-      `INSERT INTO live_status (room_id, faculty, from_time, to_time, updated_by) VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (room_id) DO UPDATE SET faculty=$2, from_time=$3, to_time=$4, updated_by=$5, updated_at=now()`,
-      [room.id, String(faculty).trim().slice(0, 80), from, to, req.user.id]);
-    await db.query('COMMIT');
-    res.json({ ok: true });
-  } catch (e) {
-    await db.query('ROLLBACK');
-    throw e;
-  } finally {
-    db.release();
-  }
 });
 
 // ---------- Admin ----------
@@ -159,10 +114,9 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Something went wrong. Please try again.' });
 });
 
-// On start: create the tables if they are missing and make sure the super admin exists.
+// On start: create or upgrade the tables (schema.sql is safe to rerun) and make sure the super admin exists.
 async function prepareDatabase() {
-  const { rows: [t] } = await pg.query("SELECT to_regclass('public.users') AS t");
-  if (!t.t) await pg.query(require('fs').readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
+  await pg.query(require('fs').readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
   const email = (process.env.SUPERADMIN_EMAIL || '').trim().toLowerCase();
   if (email) {
     await pg.query(

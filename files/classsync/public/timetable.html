@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ClassSync timetable</title>
+<link rel="stylesheet" href="/style.css"></head>
+<body>
+<header>
+  <a class="logo" href="/">ClassSync timetable<small>Weekly plan, batch by batch</small></a>
+  <div class="who"><span id="whoami"></span><a id="adminLink" href="/admin.html" hidden>Admin</a><a href="/">Back to building</a><button id="logoutBtn">Log out</button></div>
+</header>
+<main>
+  <section class="panel" id="denied" hidden><div class="gate"><b>This page is for timetable managers and admins.</b><br><a href="/">Log in from the home page</a> with a staff email.</div></section>
+
+  <section class="panel" id="pickPanel" hidden>
+    <h2>Choose a batch</h2><p class="hint">Click any slot in the grid to set its subject, room and faculty. A room cannot hold two batches at once.</p>
+    <div class="fields">
+      <label>Course<select id="pCourse"></select></label>
+      <label>Semester<select id="pSem"></select></label>
+      <label>Batch<select id="pBatch"></select></label>
+    </div>
+  </section>
+
+  <section class="panel" id="gridPanel" hidden>
+    <h2 id="gridTitle"></h2><p class="hint" id="gridHint"></p>
+    <div class="ttwrap"><table class="tt" id="grid"></table></div>
+  </section>
+</main>
+
+<dialog id="sdlg">
+  <h2 id="sTitle"></h2>
+  <div class="fields">
+    <label>Subject<input id="sSubject" maxlength="80" placeholder="e.g. Web Technologies"></label>
+    <label>Room<select id="sRoom"></select></label>
+    <label>Faculty<input id="sFaculty" maxlength="80" list="teacherNames" placeholder="e.g. Prof. A. Sharma"></label>
+  </div>
+  <datalist id="teacherNames"></datalist>
+  <div class="err" id="sErr"></div>
+  <div class="row"><button class="pri" id="sSave">Save</button><button id="sCancel">Cancel</button><button class="danger" id="sDel">Remove class</button></div>
+</dialog>
+<div class="toast" id="toast" role="status"></div>
+<script src="/common.js"></script>
+<script src="/timetable.js"></script>
+</body></html>

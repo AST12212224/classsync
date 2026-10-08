@@ -1,0 +1,176 @@
+// Floors, rooms, live status and bookings.
+const express = require('express');
+const { pg } = require('./db');
+const { requireAuth } = require('./auth');
+const { now, OPEN, CLOSE, TIME, blocks, vectors, clashes } = require('./schedule');
+
+const router = express.Router();
+const STAFF = ['teacher', 'admin', 'superadmin'];
+const ADMINS = ['admin', 'superadmin'];
+const TYPES = ['classroom', 'lab'];
+const text = (v, n) => String(v ?? '').trim().slice(0, n);
+const toId = (v) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : 0; };
+const byName = (a, b) => a.name.localeCompare(b.name, 'en', { numeric: true });
+
+// Today's bookings and timetabled classes for one room (or all rooms when roomId is null).
+const TODAY_SQL = `
+  SELECT 'booking' AS kind, bk.id, bk.room_id, bk.faculty, bk.subject, NULL AS batch,
+         to_char(bk.from_time,'HH24:MI') AS "from", to_char(bk.to_time,'HH24:MI') AS "to", bk.created_by
+    FROM bookings bk WHERE bk.day = $1 AND ($3::int IS NULL OR bk.room_id = $3)
+  UNION ALL
+  SELECT 'class', t.id, t.room_id, t.faculty, t.subject, b.course || ' · Sem ' || b.semester || ' · ' || b.name,
+         lpad(t.time_slot::text, 2, '0') || ':00', lpad((t.time_slot + 1)::text, 2, '0') || ':00', NULL
+    FROM timetable t JOIN batches b ON b.id = t.batch_id WHERE t.day = $2 AND ($3::int IS NULL OR t.room_id = $3)
+  ORDER BY 7`;
+const today = (db, t, roomId) => db.query(TODAY_SQL, [t.date, t.day, roomId]).then((r) => r.rows);
+
+// ---------- Building view ----------
+router.get('/building', requireAuth(), async (req, res) => {
+  const t = now();
+  const { rows: floors } = await pg.query('SELECT id, level, name FROM floors ORDER BY level DESC');
+  const { rows: rooms } = await pg.query('SELECT id, floor_id, name, room_type AS type FROM rooms');
+  const busy = {};
+  for (const x of await today(pg, t, null)) {
+    if (x.from <= t.time && t.time < x.to && !busy[x.room_id]) busy[x.room_id] = x;
+  }
+  res.json({
+    now: t,
+    floors: floors.map((f) => ({
+      ...f,
+      rooms: rooms.filter((r) => r.floor_id === f.id).sort(byName).map((r) => {
+        const b = busy[r.id];
+        return { id: r.id, name: r.name, type: r.type, busy: b ? { faculty: b.faculty, subject: b.subject, batch: b.batch, from: b.from, to: b.to } : null };
+      }),
+    })),
+  });
+});
+
+router.get('/rooms/:id/schedule', requireAuth(), async (req, res) => {
+  const t = now();
+  const { rows: [room] } = await pg.query(
+    `SELECT r.id, r.name, r.room_type AS type, f.name AS floor FROM rooms r JOIN floors f ON f.id = r.floor_id WHERE r.id = $1`,
+    [toId(req.params.id)]);
+  if (!room) return res.status(404).json({ error: 'That room does not exist.' });
+  res.json({ room, now: t, items: await today(pg, t, room.id) });
+});
+
+// ---------- Bookings (teachers mark a room occupied for part of today) ----------
+router.post('/rooms/:id/bookings', requireAuth(...STAFF), async (req, res) => {
+  const faculty = text(req.body.faculty, 80), subject = text(req.body.subject, 80);
+  const { from, to } = req.body;
+  if (!faculty || !TIME.test(from) || !TIME.test(to) || from < OPEN || to > CLOSE || to <= from) {
+    return res.status(400).json({ error: 'Add the faculty name and a from-to time between 8:00 AM and 6:00 PM, in 15-minute steps.' });
+  }
+  const t = now();
+  const db = await pg.connect();
+  try {
+    await db.query('BEGIN');
+    const { rows: [room] } = await db.query(
+      'SELECT r.id, f.level FROM rooms r JOIN floors f ON f.id = r.floor_id WHERE r.id = $1', [toId(req.params.id)]);
+    if (!room) { await db.query('ROLLBACK'); return res.status(404).json({ error: 'That room does not exist.' }); }
+    await db.query('SELECT pg_advisory_xact_lock($1)', [room.id]); // two requests for one room run one after the other
+    const mine = vectors(room.id, room.level, blocks(from, to));
+    const taken = await today(db, t, room.id);
+    if (taken.some((x) => clashes(mine, vectors(room.id, room.level, blocks(x.from, x.to))))) {
+      await db.query('ROLLBACK');
+      return res.status(409).json({ error: 'Room already occupied at this time.' });
+    }
+    const { rows: [b] } = await db.query(
+      `INSERT INTO bookings (room_id, day, faculty, subject, from_time, to_time, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`, [room.id, t.date, faculty, subject || null, from, to, req.user.id]);
+    await db.query('COMMIT');
+    res.status(201).json(b);
+  } catch (e) {
+    await db.query('ROLLBACK');
+    throw e;
+  } finally {
+    db.release();
+  }
+});
+
+// Frees the room: teachers remove their own bookings, admins any booking.
+router.delete('/bookings/:id', requireAuth(...STAFF), async (req, res) => {
+  const { rows: [b] } = await pg.query('SELECT id, created_by FROM bookings WHERE id = $1', [toId(req.params.id)]);
+  if (!b) return res.status(404).json({ error: 'Booking not found.' });
+  if (b.created_by !== req.user.id && !ADMINS.includes(req.user.role)) {
+    return res.status(403).json({ error: 'You can only free rooms you booked.' });
+  }
+  await pg.query('DELETE FROM bookings WHERE id = $1', [b.id]);
+  res.json({ ok: true });
+});
+
+// ---------- Admin: floors and rooms ----------
+const pgError = (res, e, dup) => {
+  if (e.code === '23505') return res.status(409).json({ error: dup });
+  if (e.code === '23503') return res.status(404).json({ error: 'That floor does not exist.' });
+  throw e;
+};
+const floorInput = (body) => {
+  const level = body.level == null || body.level === '' ? NaN : Number(body.level), name = text(body.name, 60);
+  return Number.isInteger(level) && level >= -5 && level <= 200 && name ? { level, name } : null;
+};
+const FLOOR_BAD = 'Give the floor a number (-5 to 200, 0 = ground) and a name.';
+const FLOOR_DUP = 'There is already a floor with that number.';
+const ROOM_DUP = 'A room with that name already exists on this floor.';
+
+router.post('/admin/floors', requireAuth(...ADMINS), async (req, res) => {
+  const f = floorInput(req.body);
+  if (!f) return res.status(400).json({ error: FLOOR_BAD });
+  try {
+    const { rows: [row] } = await pg.query('INSERT INTO floors (level, name) VALUES ($1,$2) RETURNING *', [f.level, f.name]);
+    res.status(201).json(row);
+  } catch (e) { pgError(res, e, FLOOR_DUP); }
+});
+
+router.put('/admin/floors/:id', requireAuth(...ADMINS), async (req, res) => {
+  const f = floorInput(req.body);
+  if (!f) return res.status(400).json({ error: FLOOR_BAD });
+  try {
+    const { rows: [row] } = await pg.query(
+      'UPDATE floors SET level = $1, name = $2 WHERE id = $3 RETURNING *', [f.level, f.name, toId(req.params.id)]);
+    if (!row) return res.status(404).json({ error: 'That floor does not exist.' });
+    res.json(row);
+  } catch (e) { pgError(res, e, FLOOR_DUP); }
+});
+
+router.delete('/admin/floors/:id', requireAuth(...ADMINS), async (req, res) => {
+  const { rowCount } = await pg.query('DELETE FROM floors WHERE id = $1', [toId(req.params.id)]); // its rooms go too
+  if (!rowCount) return res.status(404).json({ error: 'That floor does not exist.' });
+  res.json({ ok: true });
+});
+
+// Accepts one `name` or a list of `names` (up to 50) so a whole corridor can be added at once.
+router.post('/admin/rooms', requireAuth(...ADMINS), async (req, res) => {
+  const list = Array.isArray(req.body.names) ? req.body.names : [req.body.name];
+  const names = [...new Set(list.map((n) => text(n, 40)))];
+  const floorId = toId(req.body.floor_id), type = req.body.type;
+  if (!floorId || !TYPES.includes(type) || !names.length || names.length > 50 || names.some((n) => !n)) {
+    return res.status(400).json({ error: 'Pick a floor and a type, and name each room (up to 50 at a time).' });
+  }
+  try {
+    const { rows } = await pg.query(
+      `INSERT INTO rooms (floor_id, name, room_type) SELECT $1, unnest($2::text[]), $3
+       RETURNING id, floor_id, name, room_type AS type`, [floorId, names, type]);
+    res.status(201).json(rows);
+  } catch (e) { pgError(res, e, ROOM_DUP); }
+});
+
+router.put('/admin/rooms/:id', requireAuth(...ADMINS), async (req, res) => {
+  const name = text(req.body.name, 40), type = req.body.type, floorId = toId(req.body.floor_id);
+  if (!name || !TYPES.includes(type) || !floorId) return res.status(400).json({ error: 'Give the room a name, a type and a floor.' });
+  try {
+    const { rows: [row] } = await pg.query(
+      `UPDATE rooms SET name = $1, room_type = $2, floor_id = $3 WHERE id = $4
+       RETURNING id, floor_id, name, room_type AS type`, [name, type, floorId, toId(req.params.id)]);
+    if (!row) return res.status(404).json({ error: 'That room does not exist.' });
+    res.json(row);
+  } catch (e) { pgError(res, e, ROOM_DUP); }
+});
+
+router.delete('/admin/rooms/:id', requireAuth(...ADMINS), async (req, res) => {
+  const { rowCount } = await pg.query('DELETE FROM rooms WHERE id = $1', [toId(req.params.id)]);
+  if (!rowCount) return res.status(404).json({ error: 'That room does not exist.' });
+  res.json({ ok: true });
+});
+
+module.exports = router;
