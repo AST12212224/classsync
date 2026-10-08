@@ -46,7 +46,7 @@ router.get('/building', requireAuth(), async (req, res) => {
       ...f,
       rooms: rooms.filter((r) => r.floor_id === f.id).sort(byName).map((r) => {
         const b = busy[r.id];
-        return { id: r.id, name: r.name, type: r.type, busy: b ? { faculty: b.faculty, subject: b.subject, batch: b.batch, from: b.from, to: b.to } : null };
+        return { id: r.id, name: r.name, type: r.type, busy: b ? { kind: b.kind, id: b.id, created_by: b.created_by, faculty: b.faculty, subject: b.subject, batch: b.batch, from: b.from, to: b.to } : null };
       }),
     })),
   });
@@ -100,7 +100,7 @@ router.delete('/bookings/:id', requireAuth(...STAFF), async (req, res) => {
   const { rows: [b] } = await pg.query('SELECT id, created_by FROM bookings WHERE id = $1', [toId(req.params.id)]);
   if (!b) return res.status(404).json({ error: 'Booking not found.' });
   if (b.created_by !== req.user.id && !ADMINS.includes(req.user.role)) {
-    return res.status(403).json({ error: 'You can only free rooms you booked.' });
+    return res.status(403).json({ error: 'You can only release rooms you held.' });
   }
   await pg.query('DELETE FROM bookings WHERE id = $1', [b.id]);
   res.json({ ok: true });
@@ -130,10 +130,10 @@ router.delete('/classes/:id/free', requireAuth(...STAFF), async (req, res) => {
          JOIN rooms r ON r.id = t.room_id JOIN floors f ON f.id = r.floor_id
          JOIN cancellations cn ON cn.timetable_id = t.id AND cn.day = $2
         WHERE t.id = $1`, [toId(req.params.id), t.date]);
-    if (!c) { await db.query('ROLLBACK'); return res.status(404).json({ error: 'That class is not freed today.' }); }
+    if (!c) { await db.query('ROLLBACK'); return res.status(404).json({ error: 'That class is not released today.' }); }
     if (c.cancelled_by !== req.user.id && !ADMINS.includes(req.user.role)) {
       await db.query('ROLLBACK');
-      return res.status(403).json({ error: 'Only the teacher who freed this class can undo it.' });
+      return res.status(403).json({ error: 'Only the teacher who released this class can undo it.' });
     }
     await db.query('SELECT pg_advisory_xact_lock($1)', [c.room_id]);
     const mine = vectors(c.room_id, c.level, slotBlocks(c.time_slot));

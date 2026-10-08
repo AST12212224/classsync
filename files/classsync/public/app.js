@@ -18,6 +18,7 @@ function loadBuilding() {
   return api('/building').then(function (d) {
     building = d;
     $('updated').textContent = DAYS[d.now.day] + ', ' + t12(d.now.time) + ' IST';
+    renderQuick();
   });
 }
 function loadTeachers() { return api('/teachers').then(function (rows) { teachers = rows; renderDir(); }); }
@@ -65,12 +66,12 @@ function renderTower() {
       var w = el('div', 'rooms'), g = el('div', 'grid');
       if (!total) w.appendChild(el('div', 'empty', 'No rooms on this floor yet.'));
       f.rooms.forEach(function (r) {
-        var x = el('button', 'room' + (r.busy ? ' occ' : '') + (selRoom === r.id ? ' sel' : ''), null, [
+        var x = el('button', 'rsel', null, [
           el('span', 'rn', null, [el('b', null, r.name), r.type === 'lab' ? el('span', 'tag', 'Lab') : null]),
           el('small', null, r.busy ? 'Occupied till ' + t12(r.busy.to) : 'Free')]);
-        x.setAttribute('aria-label', r.name + (r.type === 'lab' ? ' lab' : '') + (r.busy ? ', occupied' : ', free'));
+        x.setAttribute('aria-label', r.name + (r.type === 'lab' ? ' lab' : '') + (r.busy ? ', occupied' : ', free') + ': open details');
         x.onclick = function () { selectRoom(r.id); };
-        g.appendChild(x);
+        g.appendChild(el('div', 'room' + (r.busy ? ' occ' : '') + (selRoom === r.id ? ' sel' : ''), null, [x, tileAction(r)]));
       });
       w.appendChild(g);
       if (selRoom && f.rooms.some(function (r) { return r.id === selRoom; })) w.appendChild(detail());
@@ -78,6 +79,51 @@ function renderTower() {
     }
     t.appendChild(d);
   });
+}
+
+// ---- hold / free straight from a room tile (teachers and admins) ----
+function isStaff() { return !!user && ['teacher', 'admin', 'superadmin'].indexOf(user.role) >= 0; }
+// A hold starts at the current quarter hour (India time), never before 8 AM.
+function holdStart() {
+  var n = building.now ? building.now.time : '00:00';
+  return TIMES.filter(function (t) { return t <= n; }).pop() || TIMES[0];
+}
+function renderQuick() {
+  var show = isStaff(), start = holdStart(), sel = $('holdUntil'), keep = sel.value;
+  var ends = TIMES.filter(function (t) { return t > start; });
+  $('quick').hidden = !show;
+  if (!show) return;
+  sel.disabled = !ends.length;
+  $('quickHint').textContent = ends.length ? 'Use Hold or Release on any room below.' : 'Rooms can only be held between 8:00 AM and 6:00 PM.';
+  fillSelect(sel, ends.map(function (t) { return { value: t, label: t12(t) }; }));
+  sel.value = ends.indexOf(keep) >= 0 ? keep : ends[Math.min(3, ends.length - 1)] || '';
+}
+function tileAction(r) {
+  if (!isStaff()) return null;
+  var b, run;
+  if (!r.busy) {
+    if ($('holdUntil').disabled) return null;
+    b = el('button', 'ract hold', 'Hold');
+    b.setAttribute('aria-label', 'Hold ' + r.name + ' until ' + t12($('holdUntil').value));
+    run = function () {
+      return api('/rooms/' + r.id + '/bookings', 'POST', { faculty: user.name, from: holdStart(), to: $('holdUntil').value })
+        .then(function () { return r.name + ' held till ' + t12($('holdUntil').value); });
+    };
+  } else if (r.busy.kind === 'class' || r.busy.created_by === user.id || isAdmin(user)) {
+    b = el('button', 'ract free', 'Release');
+    b.setAttribute('aria-label', 'Release ' + r.name);
+    run = r.busy.kind === 'class'
+      ? function () { return api('/classes/' + r.busy.id + '/free', 'POST').then(function () { return r.name + ' released for today'; }); }
+      : function () { return api('/bookings/' + r.busy.id, 'DELETE').then(function () { return r.name + ' released'; }); };
+  } else {
+    return el('small', 'by', 'Held by ' + r.busy.faculty);
+  }
+  b.onclick = function () {
+    b.disabled = true;
+    run().then(function (msg) { return refreshAfterChange().then(function () { toast(msg); }); })
+      .catch(function (e) { toast(e.message); b.disabled = false; });
+  };
+  return b;
 }
 
 function selectRoom(id) {
@@ -107,11 +153,11 @@ function detail() {
     box.appendChild(el('div', null, null, [
       el('b', null, 'Occupied till ' + t12(current.to)),
       el('small', null, [current.subject, current.faculty, current.batch].filter(Boolean).join(' \u00b7 '))]));
-    var act = staff && freeAction(current, 'Free this room');
+    var act = staff && freeAction(current, 'Release room');
     if (act) box.appendChild(act);
-    else if (staff) box.appendChild(el('small', null, 'Held by ' + current.faculty + '. Only they or an admin can free it.'));
+    else if (staff) box.appendChild(el('small', null, 'Held by ' + current.faculty + '. Only they or an admin can release it.'));
   } else {
-    box.appendChild(el('div', null, null, [el('b', null, 'Free now'), el('small', null, staff ? 'Hold it below to mark it occupied.' : 'Nobody is using this room right now.')]));
+    box.appendChild(el('div', null, null, [el('b', null, 'Free now'), el('small', null, staff ? 'Hold it to mark it occupied (red).' : 'Nobody is using this room right now.')]));
   }
   d.appendChild(box);
   if (staff && !current) d.appendChild(bookForm());
@@ -121,11 +167,11 @@ function detail() {
   if (!sched.items.length) list.appendChild(el('div', 'empty', 'Nothing scheduled here today.'));
   sched.items.forEach(function (i) {
     var who = [i.faculty, i.batch].filter(Boolean).join(' \u00b7 ');
-    var note = i.freed_by ? ' \u00b7 freed today by ' + i.freed_by : i.kind === 'class' ? ' (timetable)' : ' (held)';
+    var note = i.freed_by ? ' \u00b7 released today by ' + i.freed_by : i.kind === 'class' ? ' (timetable)' : ' (held)';
     var row = el('div', 'item' + (i === current ? ' now' : '') + (i.freed_by ? ' freed' : ''), null, [
       el('span', 't', t12(i.from) + '\u2013' + t12(i.to)),
       el('div', 'n', null, [el('b', null, i.subject || (i.kind === 'class' ? 'Class' : 'Held')), el('small', null, who + note)])]);
-    var act = staff && i !== current && freeAction(i, i.kind === 'class' ? 'Free for today' : 'Free');
+    var act = staff && i !== current && freeAction(i, i.kind === 'class' ? 'Release for today' : 'Release');
     if (act) row.appendChild(act);
     list.appendChild(row);
   });
@@ -139,12 +185,12 @@ function freeAction(i, label) {
   var call;
   if (i.kind === 'booking') {
     if (i.created_by !== user.id && !isAdmin(user)) return null;
-    call = function () { return api('/bookings/' + i.id, 'DELETE').then(function () { return 'Room freed'; }); };
+    call = function () { return api('/bookings/' + i.id, 'DELETE').then(function () { return 'Room released'; }); };
   } else if (i.freed_by) {
     label = 'Undo';
     call = function () { return api('/classes/' + i.id + '/free', 'DELETE').then(function () { return 'Class restored'; }); };
   } else {
-    call = function () { return api('/classes/' + i.id + '/free', 'POST').then(function () { return 'Room freed for today'; }); };
+    call = function () { return api('/classes/' + i.id + '/free', 'POST').then(function () { return 'Room released for today'; }); };
   }
   var b = el('button', 'small ' + (label === 'Undo' ? '' : 'danger'), label);
   b.onclick = function () {
@@ -187,7 +233,7 @@ function bookForm() {
   return f;
 }
 function refreshAfterChange() {
-  return Promise.all([loadBuilding(), loadTeachers()]).then(function () { renderTower(); return loadSched(); });
+  return Promise.all([loadBuilding(), loadTeachers()]).then(function () { renderTower(); return selRoom ? loadSched() : null; });
 }
 
 // ---- student: today's classes ----
