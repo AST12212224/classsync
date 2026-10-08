@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ClassSync admin</title>
+<link rel="stylesheet" href="/style.css"></head>
+<body>
+<header>
+  <div class="logo">ClassSync admin<small>Manage staff accounts</small></div>
+  <div class="who"><a href="/">Back to building</a><button id="logoutBtn">Log out</button></div>
+</header>
+<main>
+  <section class="panel" id="denied" hidden><div class="gate"><b>This page is for admins.</b><br><a href="/">Log in from the home page</a> with an admin email.</div></section>
+  <section class="panel" id="addPanel" hidden>
+    <h2>Add staff</h2><p class="hint">They log in with an email code. There is no sign-up page.</p>
+    <div class="fields">
+      <label>Name<input id="aName" maxlength="80"></label>
+      <label>Email<input id="aEmail" type="email"></label>
+      <label>Role<select id="aRole"></select></label>
+    </div>
+    <div class="err" id="aErr"></div>
+    <div class="row"><button class="pri" id="aAdd">Add account</button></div>
+  </section>
+  <section class="panel" id="listPanel" hidden><h2>Staff accounts</h2><div id="list"></div></section>
+</main>
+<div class="toast" id="toast" role="status"></div>
+<script src="/common.js"></script>
+<script src="/admin.js"></script>
+</body></html>

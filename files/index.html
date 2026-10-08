@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ClassSync</title>
+<link rel="stylesheet" href="/style.css"></head>
+<body>
+<header>
+  <div class="logo">ClassSync<small>No more wandering, just learning</small></div>
+  <div class="who"><span id="whoami"></span><a id="adminLink" href="/admin.html" hidden>Admin</a><button class="pri" id="loginBtn">Log in</button><button id="logoutBtn" hidden>Log out</button></div>
+</header>
+<main>
+  <section class="panel" id="gate"><div class="gate"><b>Log in with your email to see the live building view.</b><br>We send a one-time code, so there is no password to remember.</div></section>
+
+  <section class="panel" id="studentPanel" hidden>
+    <h2>Your class</h2><p class="hint">Saved once. We use it to find your room.</p>
+    <div class="fields">
+      <label>Semester<select id="sSem"><option value="">Select</option></select></label>
+      <label>Course<select id="sCourse"><option value="">Select</option><option>Computer Engineering</option><option>Information Technology</option><option>Electronics &amp; Telecom</option><option>Data Science</option><option>AI &amp; ML</option></select></label>
+      <label>Batch<select id="sBatch"><option value="">Select</option><option>A1</option><option>A2</option><option>A3</option><option>B1</option><option>B2</option><option>B3</option></select></label>
+    </div>
+    <div class="row" style="margin-top:14px"><button class="pri" id="saveStudent">Save class details</button></div>
+  </section>
+
+  <section class="panel" id="teacherPanel" hidden>
+    <h2>Your details</h2><p class="hint">Students and colleagues can see where to find you when you have no class.</p>
+    <div class="fields">
+      <label>Name<input id="tName" placeholder="Prof. A. Sharma"></label>
+      <label>Courses you teach<input id="tCourses" placeholder="DBMS, Operating Systems"></label>
+      <label>When free, I am at<select id="tPlace"><option value="">Select</option><option value="classroom">Classroom</option><option value="office_desk">Office desk</option></select></label>
+      <label>Room or desk number<input id="tWhere" placeholder="e.g. Floor 3, Room 12"></label>
+    </div>
+    <div class="row" style="margin-top:14px"><button class="pri" id="saveTeacher">Save my details</button></div>
+  </section>
+
+  <section class="panel" id="buildingPanel" hidden>
+    <h2>Building</h2><p class="hint">Select a floor to see its 20 rooms.</p>
+    <div class="legend"><span><i style="background:var(--freebg);border:1px solid var(--free)"></i>Free</span><span><i style="background:var(--occbg);border:1px solid var(--occ)"></i>Occupied</span></div>
+    <div class="tower" id="tower"></div>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <h2>Log in</h2>
+  <p class="hint" id="lStep">We will email you a 6-digit code. Teacher and admin accounts are created by the admin.</p>
+  <label>Email<input id="lEmail" type="email" autocomplete="email" placeholder="name.surname@spit.ac.in"></label>
+  <label id="otpWrap" style="margin-top:10px" hidden>Code<input id="lOtp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 digits"></label>
+  <div class="err" id="lErr"></div>
+  <div class="row"><button class="pri" id="doLogin">Send code</button><button id="cancelLogin">Cancel</button></div>
+</dialog>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="/common.js"></script>
+<script src="/app.js"></script></body></html>
