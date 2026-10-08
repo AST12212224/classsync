@@ -159,5 +159,20 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Something went wrong. Please try again.' });
 });
 
+// On start: create the tables if they are missing and make sure the super admin exists.
+async function prepareDatabase() {
+  const { rows: [t] } = await pg.query("SELECT to_regclass('public.users') AS t");
+  if (!t.t) await pg.query(require('fs').readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
+  const email = (process.env.SUPERADMIN_EMAIL || '').trim().toLowerCase();
+  if (email) {
+    await pg.query(
+      `INSERT INTO users (name, email, role) VALUES ('Super admin', $1, 'superadmin')
+       ON CONFLICT (email) DO UPDATE SET role = 'superadmin'`, [email]);
+  }
+}
+
 const port = Number(process.env.PORT) || 3000;
-redis.connect().then(() => app.listen(port, () => console.log(`ClassSync running on http://localhost:${port}`)));
+redis.connect()
+  .then(prepareDatabase)
+  .then(() => app.listen(port, () => console.log(`ClassSync running on port ${port}`)))
+  .catch((e) => { console.error('Startup failed:', e.message); process.exit(1); });
