@@ -2,7 +2,7 @@
 const express = require('express');
 const { pg } = require('./db');
 const { requireAuth } = require('./auth');
-const { FIRST_SLOT, LAST_SLOT, slotBlocks, vectors, clashes } = require('./schedule');
+const { now, FIRST_SLOT, LAST_SLOT, slotBlocks, vectors, clashes } = require('./schedule');
 
 const router = express.Router();
 const MANAGERS = ['timetable_manager', 'admin', 'superadmin'];
@@ -19,11 +19,13 @@ router.get('/timetable', requireAuth(), async (req, res) => {
   const b = batchInput(req.query);
   if (!b) return res.status(400).json({ error: 'Choose course, semester and batch.' });
   const { rows } = await pg.query(
-    `SELECT t.id, t.day, t.time_slot AS slot, t.subject, t.faculty, r.id AS room_id, r.name AS room, f.name AS floor
+    `SELECT t.id, t.day, t.time_slot AS slot, t.subject, t.faculty, r.id AS room_id, r.name AS room, f.name AS floor,
+            (c.timetable_id IS NOT NULL) AS freed_today
        FROM timetable t JOIN batches b ON b.id = t.batch_id
        JOIN rooms r ON r.id = t.room_id JOIN floors f ON f.id = r.floor_id
+       LEFT JOIN cancellations c ON c.timetable_id = t.id AND c.day = $4
       WHERE b.course = $1 AND b.semester = $2 AND b.name = $3
-      ORDER BY t.day, t.time_slot`, [b.course, b.semester, b.batch]);
+      ORDER BY t.day, t.time_slot`, [b.course, b.semester, b.batch, now().date]);
   res.json(rows);
 });
 

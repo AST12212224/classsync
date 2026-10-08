@@ -2,7 +2,7 @@
 const express = require('express');
 const { pg } = require('./db');
 const { requireAuth } = require('./auth');
-const { now, OPEN, CLOSE, TIME, blocks, vectors, clashes } = require('./schedule');
+const { now, OPEN, CLOSE, TIME, blocks, slotBlocks, vectors, clashes } = require('./schedule');
 
 const router = express.Router();
 const STAFF = ['teacher', 'admin', 'superadmin'];
@@ -12,17 +12,24 @@ const text = (v, n) => String(v ?? '').trim().slice(0, n);
 const toId = (v) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : 0; };
 const byName = (a, b) => a.name.localeCompare(b.name, 'en', { numeric: true });
 
-// Today's bookings and timetabled classes for one room (or all rooms when roomId is null).
+// Today's holds and timetabled classes for one room (or all rooms when roomId is null).
+// A class a teacher freed for today comes back with freed_by set and does not occupy the room.
 const TODAY_SQL = `
   SELECT 'booking' AS kind, bk.id, bk.room_id, bk.faculty, bk.subject, NULL AS batch,
-         to_char(bk.from_time,'HH24:MI') AS "from", to_char(bk.to_time,'HH24:MI') AS "to", bk.created_by
+         to_char(bk.from_time,'HH24:MI') AS "from", to_char(bk.to_time,'HH24:MI') AS "to", bk.created_by, NULL AS freed_by
     FROM bookings bk WHERE bk.day = $1 AND ($3::int IS NULL OR bk.room_id = $3)
   UNION ALL
   SELECT 'class', t.id, t.room_id, t.faculty, t.subject, b.course || ' · Sem ' || b.semester || ' · ' || b.name,
-         lpad(t.time_slot::text, 2, '0') || ':00', lpad((t.time_slot + 1)::text, 2, '0') || ':00', NULL
-    FROM timetable t JOIN batches b ON b.id = t.batch_id WHERE t.day = $2 AND ($3::int IS NULL OR t.room_id = $3)
+         lpad(t.time_slot::text, 2, '0') || ':00', lpad((t.time_slot + 1)::text, 2, '0') || ':00', NULL,
+         CASE WHEN c.timetable_id IS NOT NULL THEN COALESCE(u.name, 'a teacher') END
+    FROM timetable t JOIN batches b ON b.id = t.batch_id
+    LEFT JOIN cancellations c ON c.timetable_id = t.id AND c.day = $1
+    LEFT JOIN users u ON u.id = c.cancelled_by
+   WHERE t.day = $2 AND ($3::int IS NULL OR t.room_id = $3)
   ORDER BY 7`;
 const today = (db, t, roomId) => db.query(TODAY_SQL, [t.date, t.day, roomId]).then((r) => r.rows);
+// Only entries that actually occupy the room (freed classes do not).
+const holding = (rows) => rows.filter((x) => !x.freed_by);
 
 // ---------- Building view ----------
 router.get('/building', requireAuth(), async (req, res) => {
@@ -30,7 +37,7 @@ router.get('/building', requireAuth(), async (req, res) => {
   const { rows: floors } = await pg.query('SELECT id, level, name FROM floors ORDER BY level DESC');
   const { rows: rooms } = await pg.query('SELECT id, floor_id, name, room_type AS type FROM rooms');
   const busy = {};
-  for (const x of await today(pg, t, null)) {
+  for (const x of holding(await today(pg, t, null))) {
     if (x.from <= t.time && t.time < x.to && !busy[x.room_id]) busy[x.room_id] = x;
   }
   res.json({
@@ -54,7 +61,7 @@ router.get('/rooms/:id/schedule', requireAuth(), async (req, res) => {
   res.json({ room, now: t, items: await today(pg, t, room.id) });
 });
 
-// ---------- Bookings (teachers mark a room occupied for part of today) ----------
+// ---------- Holds (a teacher takes a room for part of today: red until freed) ----------
 router.post('/rooms/:id/bookings', requireAuth(...STAFF), async (req, res) => {
   const faculty = text(req.body.faculty, 80), subject = text(req.body.subject, 80);
   const { from, to } = req.body;
@@ -70,7 +77,7 @@ router.post('/rooms/:id/bookings', requireAuth(...STAFF), async (req, res) => {
     if (!room) { await db.query('ROLLBACK'); return res.status(404).json({ error: 'That room does not exist.' }); }
     await db.query('SELECT pg_advisory_xact_lock($1)', [room.id]); // two requests for one room run one after the other
     const mine = vectors(room.id, room.level, blocks(from, to));
-    const taken = await today(db, t, room.id);
+    const taken = holding(await today(db, t, room.id));
     if (taken.some((x) => clashes(mine, vectors(room.id, room.level, blocks(x.from, x.to))))) {
       await db.query('ROLLBACK');
       return res.status(409).json({ error: 'Room already occupied at this time.' });
@@ -97,6 +104,53 @@ router.delete('/bookings/:id', requireAuth(...STAFF), async (req, res) => {
   }
   await pg.query('DELETE FROM bookings WHERE id = $1', [b.id]);
   res.json({ ok: true });
+});
+
+// Frees a room held by today's timetabled class (class cancelled or moved). Any teacher can do
+// this; who did it is recorded and shown. It applies to today only.
+router.post('/classes/:id/free', requireAuth(...STAFF), async (req, res) => {
+  const t = now();
+  const { rows: [c] } = await pg.query('SELECT id, day FROM timetable WHERE id = $1', [toId(req.params.id)]);
+  if (!c) return res.status(404).json({ error: 'Class not found.' });
+  if (c.day !== t.day) return res.status(400).json({ error: 'You can only free a class that is on today.' });
+  await pg.query(
+    `INSERT INTO cancellations (timetable_id, day, cancelled_by) VALUES ($1,$2,$3)
+     ON CONFLICT (timetable_id, day) DO NOTHING`, [c.id, t.date, req.user.id]);
+  res.json({ ok: true });
+});
+
+// Undo: the class holds the room again, unless someone has taken the room in the meantime.
+router.delete('/classes/:id/free', requireAuth(...STAFF), async (req, res) => {
+  const t = now();
+  const db = await pg.connect();
+  try {
+    await db.query('BEGIN');
+    const { rows: [c] } = await db.query(
+      `SELECT t.id, t.room_id, t.time_slot, f.level, cn.cancelled_by FROM timetable t
+         JOIN rooms r ON r.id = t.room_id JOIN floors f ON f.id = r.floor_id
+         JOIN cancellations cn ON cn.timetable_id = t.id AND cn.day = $2
+        WHERE t.id = $1`, [toId(req.params.id), t.date]);
+    if (!c) { await db.query('ROLLBACK'); return res.status(404).json({ error: 'That class is not freed today.' }); }
+    if (c.cancelled_by !== req.user.id && !ADMINS.includes(req.user.role)) {
+      await db.query('ROLLBACK');
+      return res.status(403).json({ error: 'Only the teacher who freed this class can undo it.' });
+    }
+    await db.query('SELECT pg_advisory_xact_lock($1)', [c.room_id]);
+    const mine = vectors(c.room_id, c.level, slotBlocks(c.time_slot));
+    const taken = holding(await today(db, t, c.room_id)).filter((x) => x.kind === 'booking');
+    if (taken.some((x) => clashes(mine, vectors(c.room_id, c.level, blocks(x.from, x.to))))) {
+      await db.query('ROLLBACK');
+      return res.status(409).json({ error: 'Someone has taken the room since. They need to free it first.' });
+    }
+    await db.query('DELETE FROM cancellations WHERE timetable_id = $1 AND day = $2', [c.id, t.date]);
+    await db.query('COMMIT');
+    res.json({ ok: true });
+  } catch (e) {
+    await db.query('ROLLBACK');
+    throw e;
+  } finally {
+    db.release();
+  }
 });
 
 // ---------- Admin: floors and rooms ----------

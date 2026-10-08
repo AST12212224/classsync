@@ -94,6 +94,14 @@ CREATE TABLE IF NOT EXISTS timetable (
   faculty   TEXT,
   UNIQUE (room_id, day, time_slot)   -- final safeguard against double booking a room
 );
+-- A timetabled class a teacher freed for one day (class cancelled or moved): the room shows free.
+CREATE TABLE IF NOT EXISTS cancellations (
+  timetable_id INT NOT NULL REFERENCES timetable(id) ON DELETE CASCADE,
+  day          DATE NOT NULL,
+  cancelled_by INT REFERENCES users(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (timetable_id, day)
+);
 -- One class per batch per slot
 CREATE UNIQUE INDEX IF NOT EXISTS timetable_batch_slot ON timetable (batch_id, day, time_slot);
 -- Upgrade: the day now runs to 18:00, so allow the 17:00 slot

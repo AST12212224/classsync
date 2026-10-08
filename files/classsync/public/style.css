@@ -91,3 +91,8 @@ dialog .fields{grid-template-columns:1fr;margin-bottom:6px}
 table.tt{table-layout:fixed}.tt th:first-child{width:110px}
 .room .rn{display:flex;align-items:center;gap:6px;flex-wrap:wrap;width:100%}
 .fname .zero{color:var(--mut)}
+.status{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:6px 0 4px;padding:12px 14px;border-radius:8px;border:1px solid}
+.status b{display:block;font-size:16px}.status small{display:block;color:var(--mut)}
+.status.f{background:var(--freebg);border-color:var(--freeln)}.status.f b{color:var(--free)}
+.status.o{background:var(--occbg);border-color:var(--occln)}.status.o b{color:var(--occ)}
+.item.freed .n b{text-decoration:line-through;color:var(--mut)}
