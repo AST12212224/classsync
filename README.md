@@ -3,10 +3,15 @@ A Real-Time Timetable and Classroom Allocation System for SPIT (No More Wanderin
 
 ## Run locally
 
-The app is in `files/classsync` (Node.js + Express, PostgreSQL, Redis; frontend is plain HTML, CSS and JavaScript).
+Node.js + Express, PostgreSQL, Redis; the frontend is plain HTML, CSS and JavaScript.
+
+```
+backend/          Express server, auth, DB, timetable and building logic, schema.sql
+public/           pages (index, admin, timetable, map) with their JS and CSS
+SESSION_PROMPTS/  session notes: design decisions, API, how things were built
+```
 
 ```bash
-cd files/classsync
 cp .env.example .env   # set JWT_SECRET and SUPERADMIN_EMAIL
 npm install
 npm start              # http://localhost:3000; tables are created/upgraded on start

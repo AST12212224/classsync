@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ClassSync 3D map</title>
+<link rel="stylesheet" href="/style.css"></head>
+<body>
+<header>
+  <a class="logo" href="/">ClassSync 3D map<small>Every room, floor and time as a vector</small></a>
+  <div class="who"><span id="whoami"></span><a href="/">Back to building</a><button id="logoutBtn" hidden>Log out</button></div>
+</header>
+<main>
+  <section class="panel" id="gate" hidden><div class="gate"><b>Log in to see the 3D map.</b><br><a href="/">Log in from the home page</a>, then come back here.</div></section>
+
+  <section class="panel" id="mapPanel" hidden>
+    <div class="head">
+      <div><h2>Today in 3D</h2><p class="hint">Drag to turn, scroll or pinch to zoom, click a block for its vectors.</p></div>
+      <span class="hint" id="updated"></span>
+    </div>
+    <div class="row mkctl">
+      <label>Show<select id="floorSel"></select></label>
+      <label class="chk"><input type="checkbox" id="vecChk" checked>Vector pointers</label>
+      <button class="small" id="resetView">Reset view</button>
+    </div>
+    <div class="mapwrap" id="wrap">
+      <canvas id="scene" tabindex="0" aria-label="3D map of rooms by floor and time. Use the arrow keys to turn and + or - to zoom. The same data is listed in the table below."></canvas>
+      <div class="tip" id="tip" hidden></div>
+    </div>
+    <div class="mkey mt" id="key"></div>
+    <p class="hint mt">Axes: <b>x</b> = room, <b>y</b> = floor, <b>z</b> = time (8 AM to 6 PM). Each arrow starts at the origin and points to where a hold or class begins. The panel shows the exact vector the server checks: (room id, 15-minute block, floor).</p>
+  </section>
+
+  <section class="panel" id="infoPanel" hidden>
+    <h2>Selected</h2>
+    <div id="info"><p class="empty">Click a block in the map or a row below.</p></div>
+  </section>
+
+  <section class="panel" id="probePanel" hidden>
+    <h2>Test a time</h2>
+    <p class="hint">Checks a room and time against today's holds and classes with the clash rule: A × B = 0 and |A|² = |B|². This only tests it and does not hold the room.</p>
+    <div class="fields">
+      <label>Room<select id="pRoom"></select></label>
+      <label>From<select id="pFrom"></select></label>
+      <label>Till<select id="pTo"></select></label>
+    </div>
+    <div class="row mt"><button class="pri" id="pCheck">Check</button><button id="pClear">Clear</button></div>
+    <div class="mt" id="pOut"></div>
+  </section>
+
+  <section class="panel" id="listPanel" hidden>
+    <h2>Today's vectors</h2><p class="hint" id="listHint"></p>
+    <div class="mtwrap"><table class="mtable" id="list"></table></div>
+  </section>
+</main>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="/common.js"></script>
+<script type="module" src="/map.js"></script></body></html>

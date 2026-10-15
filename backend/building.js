@@ -11,6 +11,8 @@ const TYPES = ['classroom', 'lab'];
 const text = (v, n) => String(v ?? '').trim().slice(0, n);
 const toId = (v) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : 0; };
 const byName = (a, b) => a.name.localeCompare(b.name, 'en', { numeric: true });
+const MAX_HOLDS = 2; // a teacher may hold at most this many rooms at the same time (admins are not limited)
+const t12 = (t) => { const h = Number(t.slice(0, 2)); return `${h % 12 || 12}:${t.slice(3, 5)} ${h < 12 ? 'AM' : 'PM'}`; };
 
 // Today's holds and timetabled classes for one room (or all rooms when roomId is null).
 // A class a teacher freed for today comes back with freed_by set and does not occupy the room.
@@ -52,6 +54,15 @@ router.get('/building', requireAuth(), async (req, res) => {
   });
 });
 
+// Everything the 3D map draws: floors, rooms and all of today's holds and classes (freed ones too).
+router.get('/map', requireAuth(), async (req, res) => {
+  const t = now();
+  const { rows: floors } = await pg.query('SELECT id, level, name FROM floors ORDER BY level');
+  const { rows: rooms } = await pg.query('SELECT id, floor_id, name, room_type AS type FROM rooms');
+  const items = (await today(pg, t, null)).map(({ created_by, ...x }) => x);
+  res.json({ now: t, floors, rooms: rooms.sort(byName), items });
+});
+
 router.get('/rooms/:id/schedule', requireAuth(), async (req, res) => {
   const t = now();
   const { rows: [room] } = await pg.query(
@@ -76,6 +87,21 @@ router.post('/rooms/:id/bookings', requireAuth(...STAFF), async (req, res) => {
       'SELECT r.id, f.level FROM rooms r JOIN floors f ON f.id = r.floor_id WHERE r.id = $1', [toId(req.params.id)]);
     if (!room) { await db.query('ROLLBACK'); return res.status(404).json({ error: 'That room does not exist.' }); }
     await db.query('SELECT pg_advisory_xact_lock($1)', [room.id]); // two requests for one room run one after the other
+    if (req.user.role === 'teacher') {
+      await db.query('SELECT pg_advisory_xact_lock(1, $1)', [req.user.id]); // one teacher's holds are checked one at a time
+      const { rows: held } = await db.query(
+        `SELECT r.name, to_char(bk.from_time,'HH24:MI') AS "from", to_char(bk.to_time,'HH24:MI') AS "to"
+           FROM bookings bk JOIN rooms r ON r.id = bk.room_id
+          WHERE bk.day = $1 AND bk.created_by = $2 AND bk.from_time < $4 AND bk.to_time > $3`,
+        [t.date, req.user.id, from, to]);
+      // the first 15-minute block of the new hold where the teacher already has the maximum
+      const full = blocks(from, to).map((b) => held.filter((x) => blocks(x.from, x.to).includes(b))).find((xs) => xs.length >= MAX_HOLDS);
+      if (full) {
+        await db.query('ROLLBACK');
+        const names = full.map((x) => `${x.name} (${t12(x.from)}–${t12(x.to)})`).join(' and ');
+        return res.status(409).json({ error: `You can hold at most ${MAX_HOLDS} rooms at the same time. You already hold ${names}. Release one or pick another time.` });
+      }
+    }
     const mine = vectors(room.id, room.level, blocks(from, to));
     const taken = holding(await today(db, t, room.id));
     if (taken.some((x) => clashes(mine, vectors(room.id, room.level, blocks(x.from, x.to))))) {

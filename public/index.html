@@ -8,6 +8,7 @@
   <a class="logo" href="/">ClassSync<small>No more wandering, just learning</small></a>
   <div class="who">
     <span id="whoami"></span>
+    <a id="mapLink" href="/map.html" hidden>3D map</a>
     <a id="ttLink" href="/timetable.html" hidden>Timetable</a>
     <a id="adminLink" href="/admin.html" hidden>Admin</a>
     <button class="pri" id="loginBtn">Log in</button><button id="logoutBtn" hidden>Log out</button>
@@ -44,10 +45,6 @@
       <span class="hint" id="updated"></span>
     </div>
     <div class="legend"><span><i class="f"></i>Free</span><span><i class="o"></i>Occupied</span></div>
-    <div class="quick" id="quick" hidden>
-      <label>Hold rooms from now until<select id="holdUntil"></select></label>
-      <span class="hint" id="quickHint">Use <b>Hold</b> or <b>Release</b> on any room below.</span>
-    </div>
     <div class="tower" id="tower"></div>
   </section>
 
@@ -67,6 +64,13 @@
   <label id="otpWrap" class="mt" hidden>Code<input id="lOtp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 digits"></label>
   <div class="err" id="lErr"></div>
   <div class="row"><button class="pri" id="doLogin">Send code</button><button id="cancelLogin">Cancel</button></div>
+</dialog>
+<dialog id="hdlg">
+  <h2 id="hTitle">Hold room</h2>
+  <p class="hint">Pick when you will use the room today, in 15-minute steps.</p>
+  <div class="fields"><label>From<select id="hFrom"></select></label><label>Till<select id="hTo"></select></label></div>
+  <div class="err" id="hErr"></div>
+  <div class="row"><button class="pri" id="hOk">Hold room</button><button id="hCancel">Cancel</button></div>
 </dialog>
 <div class="toast" id="toast" role="status"></div>
 

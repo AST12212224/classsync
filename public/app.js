@@ -18,7 +18,6 @@ function loadBuilding() {
   return api('/building').then(function (d) {
     building = d;
     $('updated').textContent = DAYS[d.now.day] + ', ' + t12(d.now.time) + ' IST';
-    renderQuick();
   });
 }
 function loadTeachers() { return api('/teachers').then(function (rows) { teachers = rows; renderDir(); }); }
@@ -26,7 +25,7 @@ function loadTeachers() { return api('/teachers').then(function (rows) { teacher
 function renderAuth() {
   var on = !!user, role = on ? user.role : '';
   $('loginBtn').hidden = on; $('logoutBtn').hidden = !on;
-  $('adminLink').hidden = !isAdmin(user); $('ttLink').hidden = !isManager(user);
+  $('mapLink').hidden = !on; $('adminLink').hidden = !isAdmin(user); $('ttLink').hidden = !isManager(user);
   $('whoami').textContent = on ? ROLES[role] + ' · ' + user.email : '';
   $('gate').hidden = on; $('buildingPanel').hidden = !on; $('dirPanel').hidden = !on;
   $('studentPanel').hidden = role !== 'student'; $('teacherPanel').hidden = role !== 'teacher';
@@ -88,27 +87,41 @@ function holdStart() {
   var n = building.now ? building.now.time : '00:00';
   return TIMES.filter(function (t) { return t <= n; }).pop() || TIMES[0];
 }
-function renderQuick() {
-  var show = isStaff(), start = holdStart(), sel = $('holdUntil'), keep = sel.value;
-  var ends = TIMES.filter(function (t) { return t > start; });
-  $('quick').hidden = !show;
-  if (!show) return;
-  sel.disabled = !ends.length;
-  $('quickHint').textContent = ends.length ? 'Use Hold or Release on any room below.' : 'Rooms can only be held between 8:00 AM and 6:00 PM.';
-  fillSelect(sel, ends.map(function (t) { return { value: t, label: t12(t) }; }));
-  sel.value = ends.indexOf(keep) >= 0 ? keep : ends[Math.min(3, ends.length - 1)] || '';
+// From the current quarter hour to 6 PM; empty once the day is over.
+function holdTimes() { var start = holdStart(); return TIMES.filter(function (t) { return t >= start; }); }
+function openHold(r) {
+  var times = holdTimes(), from = $('hFrom'), to = $('hTo');
+  var opts = function (list) { return list.map(function (t) { return { value: t, label: t12(t) }; }); };
+  var fillTo = function () { // "till" is always after "from", default one hour
+    var ends = times.filter(function (t) { return t > from.value; }), keep = to.value;
+    fillSelect(to, opts(ends));
+    to.value = ends.indexOf(keep) >= 0 ? keep : ends[Math.min(3, ends.length - 1)];
+  };
+  $('hTitle').textContent = 'Hold ' + r.name; $('hErr').textContent = '';
+  fillSelect(from, opts(times.slice(0, -1)));
+  from.value = times[0]; to.value = ''; fillTo();
+  from.onchange = fillTo;
+  $('hOk').disabled = false;
+  $('hOk').onclick = function () {
+    $('hOk').disabled = true; $('hErr').textContent = '';
+    api('/rooms/' + r.id + '/bookings', 'POST', { faculty: user.name, from: from.value, to: to.value })
+      .then(function () { $('hdlg').close(); return refreshAfterChange(); })
+      .then(function () { toast(r.name + ' held ' + t12(from.value) + ' to ' + t12(to.value)); })
+      .catch(function (e) { $('hErr').textContent = e.message; $('hOk').disabled = false; });
+  };
+  $('hdlg').showModal(); from.focus();
 }
+$('hCancel').onclick = function () { $('hdlg').close(); };
+
 function tileAction(r) {
   if (!isStaff()) return null;
   var b, run;
   if (!r.busy) {
-    if ($('holdUntil').disabled) return null;
+    if (holdTimes().length < 2) return null;
     b = el('button', 'ract hold', 'Hold');
-    b.setAttribute('aria-label', 'Hold ' + r.name + ' until ' + t12($('holdUntil').value));
-    run = function () {
-      return api('/rooms/' + r.id + '/bookings', 'POST', { faculty: user.name, from: holdStart(), to: $('holdUntil').value })
-        .then(function () { return r.name + ' held till ' + t12($('holdUntil').value); });
-    };
+    b.setAttribute('aria-label', 'Hold ' + r.name);
+    b.onclick = function () { openHold(r); };
+    return b;
   } else if (r.busy.kind === 'class' || r.busy.created_by === user.id || isAdmin(user)) {
     b = el('button', 'ract free', 'Release');
     b.setAttribute('aria-label', 'Release ' + r.name);

@@ -15,6 +15,7 @@ app.set('trust proxy', process.env.TRUST_PROXY ? 1 : false);
 app.use(helmet({ contentSecurityPolicy: { useDefaults: true, directives: { 'upgrade-insecure-requests': prod ? [] : null } } }));
 app.use(express.json({ limit: '10kb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use('/vendor/three', express.static(path.join(__dirname, '..', 'node_modules', 'three', 'build'))); // 3D map
 app.use('/api', limit('api', Number(process.env.API_PER_MINUTE) || 600, 60, (r) => r.ip));
 
 // ---------- Auth ----------
