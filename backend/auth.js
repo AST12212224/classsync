@@ -5,7 +5,11 @@ const { pg, redis } = require('./db');
 
 const SECRET = process.env.JWT_SECRET;
 const DOMAIN = (process.env.STUDENT_DOMAIN || '@spit.ac.in').toLowerCase();
-const TOKEN_SECONDS = (Number(process.env.JWT_HOURS) || 8) * 3600;
+const DAY = 86400;
+const ACCESS_SECONDS = (Number(process.env.ACCESS_DAYS) || 7) * DAY;
+const REFRESH_SECONDS = (Number(process.env.REFRESH_DAYS) || 180) * DAY;          // students and teachers
+const ADMIN_REFRESH_SECONDS = (Number(process.env.ADMIN_REFRESH_DAYS) || 7) * DAY; // admins log in again every week
+const ADMIN_ROLES = ['admin', 'superadmin'];
 const OTP_SECONDS = 300;
 const MAX_TRIES = 5;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -86,16 +90,51 @@ async function verifyOtp(req, res) {
     ));
   }
 
-  const token = jwt.sign({ sub: user.id, role: user.role, jti: crypto.randomUUID() }, SECRET, {
+  await startSession(res, user, Math.floor(Date.now() / 1000));
+  res.json({ user });
+}
+
+const cookieOpts = (seconds, path = '/') => ({
+  httpOnly: true,                 // page scripts cannot read it
+  sameSite: 'strict',             // not sent on cross-site requests
+  secure: process.env.NODE_ENV === 'production',
+  maxAge: seconds * 1000,
+  path,
+});
+const hashRefresh = (t) => crypto.createHash('sha256').update(t).digest('hex');
+
+// A session ends a fixed time after login (6 months, or 1 week for admins); refreshing never extends it.
+const sessionEnd = (role, loginAt) => loginAt + (ADMIN_ROLES.includes(role) ? ADMIN_REFRESH_SECONDS : REFRESH_SECONDS);
+
+// Sets a short-lived access JWT and a long-lived refresh token (stored hashed in Redis, rotated on every use).
+async function startSession(res, user, loginAt) {
+  const left = sessionEnd(user.role, loginAt) - Math.floor(Date.now() / 1000);
+  const accessSeconds = Math.min(ACCESS_SECONDS, left);
+  const access = jwt.sign({ sub: user.id, role: user.role, jti: crypto.randomUUID() }, SECRET, {
     algorithm: 'HS256',
-    expiresIn: TOKEN_SECONDS,
+    expiresIn: accessSeconds,
   });
-  res.cookie('cs_token', token, {
-    httpOnly: true,                 // page scripts cannot read it
-    sameSite: 'strict',             // not sent on cross-site requests
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: TOKEN_SECONDS * 1000,
-  });
+  const refresh = crypto.randomBytes(32).toString('hex');
+  await redis.set(`refresh:${hashRefresh(refresh)}`, JSON.stringify({ uid: user.id, loginAt }), { EX: left });
+  res.cookie('cs_token', access, cookieOpts(accessSeconds));
+  res.cookie('cs_refresh', refresh, cookieOpts(left, '/api/auth')); // only sent to the auth routes
+}
+
+async function refresh(req, res) {
+  const fail = () => {
+    res.clearCookie('cs_refresh', { path: '/api/auth' });
+    res.status(401).json({ error: 'Please log in.' });
+  };
+  const token = readCookie(req, 'cs_refresh');
+  if (!token) return fail();
+  const key = `refresh:${hashRefresh(token)}`;
+  const raw = await redis.getDel(key); // single use: a copied old token stops working
+  if (!raw) return fail();
+  const { uid, loginAt } = JSON.parse(raw);
+  const { rows: [user] } = await pg.query('SELECT id, name, email, role FROM users WHERE id = $1', [uid]);
+  // The role is checked again, so someone made admin is held to the weekly limit from their login time.
+  if (!user || sessionEnd(user.role, loginAt) <= Math.floor(Date.now() / 1000)) return fail();
+  await startSession(res, user, loginAt);
   res.json({ user });
 }
 
@@ -120,11 +159,18 @@ const requireAuth = (...roles) => async (req, res, next) => {
   }
 };
 
+// Works even when the access token has expired, so the refresh token is always cleared.
 async function logout(req, res) {
-  const ttl = Math.max(1, req.exp - Math.floor(Date.now() / 1000));
-  await redis.set(`revoked:${req.jti}`, '1', { EX: ttl }); // token is dead even if copied
+  try {
+    const p = jwt.verify(readCookie(req, 'cs_token'), SECRET, { algorithms: ['HS256'] });
+    const ttl = Math.max(1, p.exp - Math.floor(Date.now() / 1000));
+    await redis.set(`revoked:${p.jti}`, '1', { EX: ttl }); // token is dead even if copied
+  } catch {}
+  const r = readCookie(req, 'cs_refresh');
+  if (r) await redis.del(`refresh:${hashRefresh(r)}`);
   res.clearCookie('cs_token');
+  res.clearCookie('cs_refresh', { path: '/api/auth' });
   res.json({ ok: true });
 }
 
-module.exports = { limit, requestOtp, verifyOtp, requireAuth, logout };
+module.exports = { limit, requestOtp, verifyOtp, refresh, requireAuth, logout };

@@ -1,10 +1,23 @@
 var $ = function (id) { return document.getElementById(id); };
-function api(path, method, body) {
+// On a 401 the access token has expired: get a new one with the refresh cookie once, then retry.
+var refreshing = null;
+function api(path, method, body, retried) {
   return fetch('/api' + path, {
     method: method || 'GET',
     headers: body ? { 'Content-Type': 'application/json' } : {},
     body: body ? JSON.stringify(body) : undefined
   }).then(function (r) {
+    if (r.status === 401 && !retried && path.indexOf('/auth/') !== 0) {
+      refreshing = refreshing || fetch('/api/auth/refresh', { method: 'POST' })
+        .then(function (x) { return x.ok; }, function () { return false; })
+        .then(function (ok) { refreshing = null; return ok; });
+      return refreshing.then(function (ok) {
+        if (ok) return api(path, method, body, true);
+        return r.json().catch(function () { return {}; }).then(function (d) {
+          var e = new Error(d.error || 'Please log in.'); e.status = 401; throw e;
+        });
+      });
+    }
     return r.json().catch(function () { return {}; }).then(function (d) {
       if (!r.ok) { var e = new Error(d.error || 'Something went wrong.'); e.status = r.status; throw e; }
       return d;
