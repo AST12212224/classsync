@@ -3,7 +3,7 @@ const path = require('path');
 const express = require('express');
 const helmet = require('helmet');
 const { pg, redis } = require('./db');
-const { limit, requestOtp, verifyOtp, refresh, requireAuth, logout } = require('./auth');
+const { limit, requestOtp, verifyOtp, needsRefreshCookie, refresh, requireAuth, logout } = require('./auth');
 const { now } = require('./schedule');
 
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
@@ -24,7 +24,7 @@ app.post('/api/auth/request-otp',
   limit('otp-email', 10, 3600, (r) => String(r.body.email || '').toLowerCase()),
   requestOtp);
 app.post('/api/auth/verify-otp', limit('verify-ip', 100, 900, (r) => r.ip), verifyOtp);
-app.post('/api/auth/refresh', limit('refresh-ip', 300, 900, (r) => r.ip), refresh);
+app.post('/api/auth/refresh', needsRefreshCookie, limit('refresh-ip', 600, 900, (r) => r.ip), refresh);
 app.post('/api/auth/logout', logout);
 
 // ---------- Profile ----------

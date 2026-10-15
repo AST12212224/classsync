@@ -9,6 +9,19 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- One row per login. The access token names the session; the refresh token is kept only as a hash.
+-- Logging out or removing the user deletes the row, which ends access at once.
+CREATE TABLE IF NOT EXISTS sessions (
+  id           UUID PRIMARY KEY,
+  user_id      INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  login_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  refresh_hash TEXT UNIQUE NOT NULL,
+  prev_hash    TEXT,          -- the token just replaced, to spot another tab or a copied token
+  rotated_at   TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);
+CREATE INDEX IF NOT EXISTS sessions_prev ON sessions (prev_hash);
+
 -- Floors and rooms are added and named by an admin.
 CREATE TABLE IF NOT EXISTS floors (
   id    SERIAL PRIMARY KEY,

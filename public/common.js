@@ -1,23 +1,41 @@
 var $ = function (id) { return document.getElementById(id); };
 // On a 401 the access token has expired: get a new one with the refresh cookie once, then retry.
-var refreshing = null;
+// A 401 always comes before the request does anything, so retrying a POST is safe.
+var refreshing = null, sessionGone = false, wasLoggedIn = false;
+function refreshOnce() {
+  refreshing = refreshing || fetch('/api/auth/refresh', { method: 'POST' })
+    .then(function (x) {
+      // 409: another tab refreshed a moment ago; its new cookies are already in the browser
+      if (x.status === 409) return new Promise(function (ok) { setTimeout(function () { ok(true); }, 300); });
+      return x.ok;
+    }, function () { return false; })
+    .then(function (ok) { refreshing = null; return ok; });
+  return refreshing;
+}
+// The session ended while the page was open: say so once and reload into the logged-out view.
+function sessionEnded() {
+  if (sessionGone) return;
+  sessionGone = true;
+  if (!wasLoggedIn) return;
+  toast('Your session has ended. Please log in again.');
+  setTimeout(function () { location.reload(); }, 2500);
+}
 function api(path, method, body, retried) {
+  var authCall = path.indexOf('/auth/') === 0;
   return fetch('/api' + path, {
     method: method || 'GET',
     headers: body ? { 'Content-Type': 'application/json' } : {},
     body: body ? JSON.stringify(body) : undefined
   }).then(function (r) {
-    if (r.status === 401 && !retried && path.indexOf('/auth/') !== 0) {
-      refreshing = refreshing || fetch('/api/auth/refresh', { method: 'POST' })
-        .then(function (x) { return x.ok; }, function () { return false; })
-        .then(function (ok) { refreshing = null; return ok; });
-      return refreshing.then(function (ok) {
+    if (r.status === 401 && !authCall && !retried && !sessionGone) {
+      return refreshOnce().then(function (ok) {
         if (ok) return api(path, method, body, true);
-        return r.json().catch(function () { return {}; }).then(function (d) {
-          var e = new Error(d.error || 'Please log in.'); e.status = 401; throw e;
-        });
+        sessionEnded();
+        var e = new Error('Please log in.'); e.status = 401; throw e;
       });
     }
+    if (r.ok && !authCall) wasLoggedIn = true;
+    if (r.ok && path === '/auth/verify-otp') sessionGone = false;
     return r.json().catch(function () { return {}; }).then(function (d) {
       if (!r.ok) { var e = new Error(d.error || 'Something went wrong.'); e.status = r.status; throw e; }
       return d;
